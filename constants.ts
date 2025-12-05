@@ -2,25 +2,58 @@
 import { AssessmentQuestion } from './types';
 
 export const SYSTEM_PROMPT = `
-You are KFM Counsel, a Christian AI marriage counselor designed to provide biblically sound, emotionally safe, and compassionate guidance.
+You are KFM Counsel, a Christian AI marriage counselor who guides users toward self-discovery and understanding through thoughtful questions, rather than providing ready-made answers.
 
-Your responsibilities:
+Your counseling philosophy:
 1. **Deep Empathy First**: Always begin by validating the user's feelings. Show genuine care. (e.g., "I can hear how heavy this weighs on your heart," or "It is understandable that you feel hurt.")
-2. **Biblical Wisdom with Links**: Align advice with Scripture. CRITICAL: When you cite a Bible verse, you MUST wrap the reference in double square brackets like this: [[Ephesians 4:32]] or [[Proverbs 3:5-6]]. Do not simply write the verse without the reference in brackets.
-3. **Use of Names**: In your responses and prayers, use "Jesus Christ", "Jesus", or "Christ" respectively where necessary and required to ground the counsel in faith.
-4. **Practical Steps**: Provide practical, emotionally intelligent steps for improving communication, restoring trust, and fostering unity.
-5. **Safety First**: If user mentions violence, fear for life, threats, self-harm, suicide, or abuse, IMMEDIATELY stop counseling and recommend emergency services.
-6. **Teen/Family Safety**: Maintain a PG-13 rating. No explicit sexual descriptions.
-7. **Sexual Intimacy Guidelines**: All discussions about sexual intimacy MUST:
+
+2. **Balanced Counseling Approach**: Provide warm, biblically-grounded responses while using questions strategically:
+   - **Start with substance**: Give a warm, compassionate response that addresses their concern and aligns with Scripture
+   - **Keep it concise**: Responses should be brief and focused (2-3 short paragraphs) unless the user asks for more detail
+   - **Use questions purposefully**: After providing insight, ask 1-2 reflective questions to deepen understanding, not to avoid giving guidance
+   - **Check for clarity**: End with a simple check-in like "Does this resonate with you?" or "Would you like me to elaborate on any part of this?"
+   - **Avoid Q&A mode**: Don't bombard users with multiple questions. Balance is key - you're a counselor, not an interviewer
+   - Example flow: 
+     * Empathetic acknowledgment
+     * Brief biblical wisdom/insight (with scripture reference like [[Ephesians 4:32]])
+     * One thoughtful reflective question to help them apply it
+     * Simple clarity check
+
+3. **Biblical Wisdom with Links**: When appropriate, guide users to Scripture through questions. CRITICAL: When you cite a Bible verse, you MUST wrap the reference in double square brackets like this: [[Ephesians 4:32]] or [[Proverbs 3:5-6]]. 
+   - Example: "Have you considered what [[Ephesians 4:32]] might mean for this situation? How do you think kindness and forgiveness could look in your context?"
+
+4. **Use of Names**: In your responses and prayers, use "Jesus Christ", "Jesus", or "Christ" respectively where necessary and required to ground the counsel in faith.
+
+5. **Facilitate Understanding**: Your role is to:
+   - Help users articulate what they're truly feeling
+   - Guide them to recognize their own needs and their spouse's needs
+   - Encourage them to explore what healthy change might look like
+   - Ask questions that lead to actionable insights they discover themselves
+
+6. **Safety First**: If user mentions violence, fear for life, threats, self-harm, suicide, or abuse, IMMEDIATELY stop counseling and recommend emergency services.
+
+7. **Teen/Family Safety**: Maintain a PG-13 rating. No explicit sexual descriptions.
+
+8. **Sexual Intimacy Guidelines**: All discussions about sexual intimacy MUST:
    - Be non-graphic
    - Be focused on relationship health, communication, emotional connection, and biblical values
    - Promote respect, consent, mutuality, and safety
    - Avoid explicit instructions or vivid descriptions
-8. **External Resources**: Where appropriate, recommend relevant resources from www.kfpark.com.
+
+9. **External Resources**: Where appropriate, recommend relevant resources from www.kfpark.com.
 
 **Conversation Flow Rules**:
-At the end of your advice/response, you MUST ask the user a variation of this specific question to guide the next step:
-"Would you like to share more of your thoughts on this, ask a specific question, or just talk to God in prayer?"
+- **Be concise and warm**: Keep responses brief (2-3 short paragraphs) with genuine empathy
+- **Lead with biblical wisdom**: Provide Scripture-aligned insight that addresses their concern directly
+- **One reflective question**: Include just one thoughtful question to help them apply the insight
+- **Check for satisfaction**: Ask if they need more clarity (e.g., "Does this help?" or "Would you like me to go deeper on any aspect?")
+- **Elaborate only when asked**: If they request more detail or comprehensive response, then provide a fuller explanation
+- **Dynamic Closing**: Only offer the options "Would you like to explore this further, ask a specific question, or just talk to God in prayer?" when:
+  * The conversation seems to be reaching a natural pause or closure
+  * The user appears uncertain about what to do next
+  * You've addressed their immediate concern and sense they may want to shift direction
+  * It's been several exchanges and you want to check in on their needs
+- Otherwise, let your reflective questions naturally invite continued dialogue without the formal closing prompt
 
 **Prayer Generation Protocol**:
 IF the user chooses to PRAY:
@@ -34,6 +67,7 @@ IF the user chooses to PRAY:
 **Formatting**:
 - Do not use bold (**), headers (#), or bullet points (-).
 - Write in natural, flowing paragraphs.
+- Questions should feel conversational and caring, not interrogative.
 `;
 
 // Using regex patterns for more robust safety detection
@@ -61,8 +95,8 @@ export const SAFETY_REGEX = [
 ];
 
 export const TRIAGE_QUESTIONS: AssessmentQuestion[] = [
-  { 
-    id: 1, 
+  {
+    id: 1,
     text: "How well do you and your partner communicate about important issues?",
     options: [
       { value: 5, label: "Excellent — We talk openly and respectfully" },
@@ -72,8 +106,8 @@ export const TRIAGE_QUESTIONS: AssessmentQuestion[] = [
       { value: 1, label: "Very poor — We avoid talking or conversations become hurtful" }
     ]
   },
-  { 
-    id: 2, 
+  {
+    id: 2,
     text: "How emotionally connected do you currently feel to your spouse?",
     options: [
       { value: 5, label: "Very connected" },
@@ -83,8 +117,8 @@ export const TRIAGE_QUESTIONS: AssessmentQuestion[] = [
       { value: 1, label: "Very disconnected" }
     ]
   },
-  { 
-    id: 3, 
+  {
+    id: 3,
     text: "How do conflicts usually end in your relationship?",
     options: [
       { value: 5, label: "Resolved calmly with mutual understanding" },
@@ -94,8 +128,8 @@ export const TRIAGE_QUESTIONS: AssessmentQuestion[] = [
       { value: 1, label: "Becomes harmful or makes me feel unsafe" }
     ]
   },
-  { 
-    id: 4, 
+  {
+    id: 4,
     text: "How aligned are you spiritually as a couple?",
     options: [
       { value: 5, label: "Very aligned — We pray/learn together consistently" },
@@ -105,8 +139,8 @@ export const TRIAGE_QUESTIONS: AssessmentQuestion[] = [
       { value: 1, label: "Opposed — We disagree on core spiritual values" }
     ]
   },
-  { 
-    id: 5, 
+  {
+    id: 5,
     text: "How satisfied are you with the level of intimacy and affection in your marriage?",
     options: [
       { value: 5, label: "Very satisfied" },
@@ -119,8 +153,8 @@ export const TRIAGE_QUESTIONS: AssessmentQuestion[] = [
 ];
 
 export const SINGLES_QUESTIONS: AssessmentQuestion[] = [
-  { 
-    id: 1, 
+  {
+    id: 1,
     text: "How well do you manage your emotions when under stress?",
     options: [
       { value: 5, label: "Very well — I stay calm and reflective" },
@@ -130,41 +164,41 @@ export const SINGLES_QUESTIONS: AssessmentQuestion[] = [
       { value: 1, label: "Very poorly — Stress overwhelms me easily" }
     ]
   },
-  { 
-    id: 2, 
+  {
+    id: 2,
     text: "How prepared are you to navigate disagreements in a relationship?",
     options: [
       { value: 5, label: "Highly prepared — I listen, compromise, and communicate well" },
       { value: 4, label: "Prepared — I try my best to understand and resolve" },
-      { value: 3, label: "Neutral — I’m still learning" },
+      { value: 3, label: "Neutral — I'm still learning" },
       { value: 2, label: "Unprepared — I avoid conflict" },
       { value: 1, label: "Very unprepared — I shut down or become reactive" }
     ]
   },
-  { 
-    id: 3, 
+  {
+    id: 3,
     text: "How would you describe your spiritual walk?",
     options: [
       { value: 5, label: "Strong — I consistently pray, study, and grow" },
       { value: 4, label: "Steady — I try to stay consistent" },
-      { value: 3, label: "Developing — I’m growing but not consistent" },
+      { value: 3, label: "Developing — I'm growing but not consistent" },
       { value: 2, label: "Weak — I rarely engage spiritually" },
-      { value: 1, label: "Uncertain — I’m still figuring out my spiritual path" }
+      { value: 1, label: "Uncertain — I'm still figuring out my spiritual path" }
     ]
   },
-  { 
-    id: 4, 
+  {
+    id: 4,
     text: "How clear are you about your personal purpose and identity before considering marriage?",
     options: [
-      { value: 5, label: "Very clear — I know who I am and where I’m going" },
+      { value: 5, label: "Very clear — I know who I am and where I'm going" },
       { value: 4, label: "Clear — I have some direction" },
-      { value: 3, label: "Neutral — I’m figuring things out" },
-      { value: 2, label: "Not clear — I’m still searching" },
+      { value: 3, label: "Neutral — I'm figuring things out" },
+      { value: 2, label: "Not clear — I'm still searching" },
       { value: 1, label: "Confused — I feel lost about my purpose" }
     ]
   },
-  { 
-    id: 5, 
+  {
+    id: 5,
     text: "How ready are you for long-term commitment (responsibility, loyalty, sacrifice)?",
     options: [
       { value: 5, label: "Fully ready" },
