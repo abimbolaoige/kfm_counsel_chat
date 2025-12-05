@@ -16,6 +16,15 @@ export interface Message {
   isSafetyWarning?: boolean;
 }
 
+export interface ChatSession {
+  id: string;
+  title: string;
+  preview: string;
+  createdAt: number;
+  updatedAt: number;
+  messageCount?: number;
+}
+
 export interface AssessmentOption {
   value: number;
   label: string;

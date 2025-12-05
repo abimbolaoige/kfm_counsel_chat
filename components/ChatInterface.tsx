@@ -1,15 +1,17 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, ShieldAlert, User, Sparkles, Trash2, Mic, MicOff, Copy, Check, Volume2, VolumeX, Pencil, ExternalLink } from 'lucide-react';
-import { Message, UserProfile } from '../types';
+import { Message, UserProfile, ChatSession } from '../types';
 import { sendMessageToGemini } from '../services/geminiService';
-import { subscribeToChatHistory, saveChatMessage } from '../services/dataService';
+import { subscribeToSessionMessages, saveSessionMessage, createChatSession } from '../services/dataService';
 import { SAFETY_REGEX } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 
 interface ChatInterfaceProps {
   triggerSafety: () => void;
   showLegal: (tab: 'terms' | 'privacy') => void;
+  activeSessionId: string | null;
+  onSessionChange?: (sessionId: string) => void;
 }
 
 const cleanText = (text: string) => {
@@ -23,13 +25,14 @@ const cleanText = (text: string) => {
     .trim();
 };
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal, activeSessionId, onSessionChange }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(activeSessionId);
 
   // Terms Acceptance State
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -42,8 +45,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal 
   const { user } = useAuth();
 
   // Dynamic keys based on logged-in user
-  const chatStorageKey = user ? `kfm_chat_${user.id}` : 'kfm_chat_guest';
+  const sessionsStorageKey = user ? `kfm_sessions_${user.id}` : 'kfm_sessions_guest';
   const profileStorageKey = user ? `kfm_profile_${user.id}` : 'kfm_profile_guest';
+
+  // Update current session when activeSessionId changes
+  useEffect(() => {
+    setCurrentSessionId(activeSessionId);
+  }, [activeSessionId]);
 
   // Initialize Speech Recognition
   useEffect(() => {
@@ -121,14 +129,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal 
     inputRef.current?.focus();
   };
 
-  // Load history logic (Cloud vs Local)
+  // Load session messages (Cloud vs Local)
   useEffect(() => {
+    if (!currentSessionId) {
+      setMessages([]);
+      return;
+    }
+
     if (user) {
-      // CLOUD MODE: Subscribe to Firestore
-      const unsubscribe = subscribeToChatHistory(user.id, (fetchedMessages) => {
+      // CLOUD MODE: Subscribe to session messages
+      const unsubscribe = subscribeToSessionMessages(user.id, currentSessionId, (fetchedMessages) => {
         if (fetchedMessages && fetchedMessages.length > 0) {
           setMessages(fetchedMessages);
-          // Assume terms accepted if returning user has history (simplified for UX)
           setTermsAccepted(true);
         } else {
           setMessages([{
@@ -141,14 +153,25 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal 
       });
       return () => unsubscribe();
     } else {
-      // GUEST MODE: Local Storage
-      const saved = localStorage.getItem(chatStorageKey);
+      // GUEST MODE: Local Storage with sessions
+      const saved = localStorage.getItem(sessionsStorageKey);
       if (saved) {
         try {
-          setMessages(JSON.parse(saved));
-          setTermsAccepted(true); // Auto-accept for returning guests with history
+          const sessions = JSON.parse(saved);
+          const session = sessions.find((s: any) => s.id === currentSessionId);
+          if (session && session.messages) {
+            setMessages(session.messages);
+            setTermsAccepted(true);
+          } else {
+            setMessages([{
+              id: 'welcome',
+              role: 'model',
+              text: "Hello. I am KFM Counsel, your Christian marriage relationship companion. How can I be a support to you today?",
+              timestamp: Date.now(),
+            }]);
+          }
         } catch (e) {
-          console.error("Failed to load chat history", e);
+          console.error("Failed to load session", e);
         }
       } else {
         setMessages([{
@@ -159,36 +182,69 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal 
         }]);
       }
     }
-  }, [user, chatStorageKey]);
+  }, [user, currentSessionId, sessionsStorageKey]);
 
   // Scroll on update
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
-  // Save to LocalStorage (Backup/Guest)
+  // Save to LocalStorage for guests (session-based)
   useEffect(() => {
-    if (!user && messages.length > 0) {
-      localStorage.setItem(chatStorageKey, JSON.stringify(messages));
+    if (!user && currentSessionId && messages.length > 0) {
+      const saved = localStorage.getItem(sessionsStorageKey);
+      let sessions = [];
+      try {
+        sessions = saved ? JSON.parse(saved) : [];
+      } catch (e) {
+        sessions = [];
+      }
+
+      const sessionIndex = sessions.findIndex((s: any) => s.id === currentSessionId);
+      if (sessionIndex >= 0) {
+        sessions[sessionIndex].messages = messages;
+        sessions[sessionIndex].updatedAt = Date.now();
+      } else {
+        sessions.push({
+          id: currentSessionId,
+          title: 'New Conversation',
+          messages,
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        });
+      }
+
+      localStorage.setItem(sessionsStorageKey, JSON.stringify(sessions));
     }
-  }, [messages, chatStorageKey, user]);
+  }, [messages, sessionsStorageKey, user, currentSessionId]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   const clearHistory = () => {
-    if (window.confirm("Are you sure you want to clear your chat history?")) {
-      if (user) {
-        alert("To clear cloud history, please use your Profile Settings (Full delete not implemented in this MVP).");
-      } else {
-        localStorage.removeItem(chatStorageKey);
+    if (window.confirm("Are you sure you want to delete this conversation?")) {
+      if (user && currentSessionId) {
+        // For cloud users, this would call deleteSession - handled by parent component
+        alert("Please use the delete button in the sessions list.");
+      } else if (currentSessionId) {
+        // For guests, remove from localStorage
+        const saved = localStorage.getItem(sessionsStorageKey);
+        if (saved) {
+          try {
+            let sessions = JSON.parse(saved);
+            sessions = sessions.filter((s: any) => s.id !== currentSessionId);
+            localStorage.setItem(sessionsStorageKey, JSON.stringify(sessions));
+          } catch (e) {
+            console.error("Failed to delete session", e);
+          }
+        }
         window.speechSynthesis.cancel();
         setSpeakingId(null);
         setMessages([{
           id: Date.now().toString(),
           role: 'model',
-          text: "Chat history cleared. How can I be a support to you today?",
+          text: "Conversation deleted. Start a new one!",
           timestamp: Date.now(),
         }]);
       }
@@ -221,9 +277,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal 
     // Optimistic update
     setMessages(prev => [...prev, newUserMsg]);
 
-    // Save to cloud if logged in
-    if (user) {
-      saveChatMessage(user.id, newUserMsg).catch(console.error);
+    // Save to cloud if logged in and session exists
+    if (user && currentSessionId) {
+      saveSessionMessage(user.id, currentSessionId, newUserMsg).catch(console.error);
     }
 
     if (checkForSafety(userText)) return;
@@ -260,8 +316,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal 
 
       setMessages(prev => [...prev, newAiMsg]);
 
-      if (user) {
-        saveChatMessage(user.id, newAiMsg).catch(console.error);
+      if (user && currentSessionId) {
+        saveSessionMessage(user.id, currentSessionId, newAiMsg).catch(console.error);
       }
 
     } catch (error) {

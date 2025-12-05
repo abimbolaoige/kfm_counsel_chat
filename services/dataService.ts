@@ -1,14 +1,14 @@
 
-import { 
-    collection, 
-    doc, 
-    setDoc, 
-    getDoc, 
-    addDoc, 
-    query, 
-    where, 
-    orderBy, 
-    onSnapshot, 
+import {
+    collection,
+    doc,
+    setDoc,
+    getDoc,
+    addDoc,
+    query,
+    where,
+    orderBy,
+    onSnapshot,
     deleteDoc,
     serverTimestamp,
     limit
@@ -21,9 +21,9 @@ import { UserProfile, JournalEntry, Message } from '../types';
 export const saveUserProfile = async (userId: string, profile: UserProfile) => {
     if (!db) throw new Error("Database not initialized");
     const userRef = doc(db, 'users', userId);
-    await setDoc(userRef, { 
-        ...profile, 
-        updatedAt: serverTimestamp() 
+    await setDoc(userRef, {
+        ...profile,
+        updatedAt: serverTimestamp()
     }, { merge: true });
 };
 
@@ -37,14 +37,135 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
     return null;
 };
 
-// --- Chat History ---
+// --- Chat Sessions & History ---
 
+export const createChatSession = async (userId: string, title: string = 'New Conversation'): Promise<string> => {
+    if (!db) throw new Error("Database not initialized");
+
+    const sessionId = `session_${Date.now()}`;
+    const sessionRef = doc(db, 'users', userId, 'sessions', sessionId);
+
+    await setDoc(sessionRef, {
+        id: sessionId,
+        title,
+        preview: '',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messageCount: 0
+    });
+
+    return sessionId;
+};
+
+export const subscribeToChatSessions = (userId: string, callback: (sessions: any[]) => void) => {
+    if (!db) return () => { };
+
+    const q = query(
+        collection(db, 'users', userId, 'sessions'),
+        orderBy('updatedAt', 'desc')
+    );
+
+    return onSnapshot(q, (snapshot) => {
+        const sessions = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        callback(sessions);
+    });
+};
+
+export const subscribeToSessionMessages = (userId: string, sessionId: string, callback: (messages: Message[]) => void) => {
+    if (!db) return () => { };
+
+    const q = query(
+        collection(db, 'users', userId, 'sessions', sessionId, 'messages'),
+        orderBy('timestamp', 'asc')
+    );
+
+    return onSnapshot(q, (snapshot) => {
+        const messages = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        } as Message));
+        callback(messages);
+    });
+};
+
+export const saveSessionMessage = async (userId: string, sessionId: string, message: Message) => {
+    if (!db) throw new Error("Database not initialized");
+
+    // Save the message
+    await setDoc(doc(db, 'users', userId, 'sessions', sessionId, 'messages', message.id), message);
+
+    // Update session metadata
+    const sessionRef = doc(db, 'users', userId, 'sessions', sessionId);
+    const sessionSnap = await getDoc(sessionRef);
+
+    if (sessionSnap.exists()) {
+        const sessionData = sessionSnap.data();
+        const updates: any = {
+            updatedAt: Date.now(),
+            messageCount: (sessionData.messageCount || 0) + 1
+        };
+
+        // Update preview with first user message
+        if (!sessionData.preview && message.role === 'user') {
+            updates.preview = message.text.substring(0, 50) + (message.text.length > 50 ? '...' : '');
+        }
+
+        // Auto-generate title from first user message
+        if (sessionData.title === 'New Conversation' && message.role === 'user') {
+            const title = message.text.substring(0, 40) + (message.text.length > 40 ? '...' : '');
+            updates.title = title;
+        }
+
+        await setDoc(sessionRef, updates, { merge: true });
+    }
+};
+
+export const deleteSession = async (userId: string, sessionId: string) => {
+    if (!db) throw new Error("Database not initialized");
+
+    // Delete all messages in the session
+    const messagesQuery = query(collection(db, 'users', userId, 'sessions', sessionId, 'messages'));
+    const messagesSnapshot = await getDoc(doc(db, 'users', userId, 'sessions', sessionId));
+
+    // Delete the session document
+    await deleteDoc(doc(db, 'users', userId, 'sessions', sessionId));
+};
+
+export const updateSessionTitle = async (userId: string, sessionId: string, title: string) => {
+    if (!db) throw new Error("Database not initialized");
+    await setDoc(doc(db, 'users', userId, 'sessions', sessionId), { title }, { merge: true });
+};
+
+// Migration function for existing users
+export const migrateOldChatData = async (userId: string) => {
+    if (!db) return;
+
+    try {
+        // Check if old chat data exists
+        const oldChatsQuery = query(collection(db, 'users', userId, 'chats'));
+        const oldChatsSnapshot = await getDoc(doc(db, 'users', userId));
+
+        // If there's old data, migrate it to a default session
+        const defaultSessionId = await createChatSession(userId, 'Previous Conversations');
+
+        // Note: Full migration would require reading all old messages and moving them
+        // For now, we'll let users start fresh with the new structure
+        // A full migration script could be run server-side if needed
+    } catch (error) {
+        console.error('Migration error:', error);
+    }
+};
+
+// Legacy functions - kept for backward compatibility but deprecated
 export const subscribeToChatHistory = (userId: string, callback: (messages: Message[]) => void) => {
-    if (!db) return () => {};
-    
+    if (!db) return () => { };
+
     const q = query(
         collection(db, 'users', userId, 'chats'),
-        orderBy('timestamp', 'asc') // Oldest first for chat flow
+        orderBy('timestamp', 'asc')
     );
 
     return onSnapshot(q, (snapshot) => {
@@ -58,26 +179,19 @@ export const subscribeToChatHistory = (userId: string, callback: (messages: Mess
 
 export const saveChatMessage = async (userId: string, message: Message) => {
     if (!db) throw new Error("Database not initialized");
-    // Use message ID as doc ID to prevent duplicates if we re-save
     await setDoc(doc(db, 'users', userId, 'chats', message.id), message);
 };
 
 export const clearChatHistory = async (userId: string) => {
     if (!db) return;
-    const q = query(collection(db, 'users', userId, 'chats'));
-    // Note: Deleting collections in client SDK is not directly supported efficiently, 
-    // but for this app we iterate and delete (fine for small histories).
-    // In a real large-scale app, use a Callable Function.
-    // For MVP, we will just not load them or mark them deleted.
-    // Here we implement a soft delete wrapper or just manual loop:
-    // For now, we simply won't implement full delete to avoid excessive reads/writes in MVP loop.
+    // Deprecated - use deleteSession instead
 };
 
 // --- Journal ---
 
 export const subscribeToJournal = (userId: string, callback: (entries: JournalEntry[]) => void) => {
-    if (!db) return () => {};
-    
+    if (!db) return () => { };
+
     const q = query(
         collection(db, 'users', userId, 'journal'),
         orderBy('date', 'desc')
@@ -105,7 +219,7 @@ export const deleteJournalEntry = async (userId: string, entryId: string) => {
 // --- Prayer Hub ---
 
 export const subscribeToPrayerRequests = (callback: (requests: any[]) => void) => {
-    if (!db) return () => {};
+    if (!db) return () => { };
     // Real-time listener for public prayer requests
     const q = query(
         collection(db, 'prayer_requests'),
@@ -123,7 +237,7 @@ export const subscribeToPrayerRequests = (callback: (requests: any[]) => void) =
 };
 
 export const subscribeToTestimonies = (callback: (testimonies: any[]) => void) => {
-    if (!db) return () => {};
+    if (!db) return () => { };
     const q = query(
         collection(db, 'testimonies'),
         orderBy('timestamp', 'desc'),

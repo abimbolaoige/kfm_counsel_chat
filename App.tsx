@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Navigation from './components/Navigation';
 import HomeView from './components/HomeView';
 import ChatInterface from './components/ChatInterface';
+import ChatSessionList from './components/ChatSessionList';
 import TriageAssessment from './components/TriageAssessment';
 import SinglesAssessment from './components/SinglesAssessment';
 import EscalationForm from './components/EscalationForm';
@@ -13,14 +14,19 @@ import JournalView from './components/JournalView';
 import AuthScreen from './components/AuthScreen';
 import LegalConsent from './components/LegalConsent';
 import VerificationScreen from './components/VerificationScreen';
-import { ViewState } from './types';
+import { ViewState, ChatSession } from './types';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { subscribeToChatSessions, createChatSession, deleteSession } from './services/dataService';
 
 function AppContent() {
   const { user, isEmailVerified, isLoading } = useAuth();
   const [currentView, setCurrentView] = useState<ViewState>('home');
   const [safetyMode, setSafetyMode] = useState(false);
   const [legalDoc, setLegalDoc] = useState<'terms' | 'privacy' | null>(null);
+
+  // Session management
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -40,6 +46,56 @@ function AppContent() {
     }
   }, [isDarkMode]);
 
+  // Load sessions
+  useEffect(() => {
+    if (user) {
+      // Cloud mode: subscribe to sessions
+      const unsubscribe = subscribeToChatSessions(user.id, (fetchedSessions) => {
+        setSessions(fetchedSessions);
+        // Auto-select first session or create one if none exist
+        if (fetchedSessions.length > 0 && !activeSessionId) {
+          setActiveSessionId(fetchedSessions[0].id);
+        } else if (fetchedSessions.length === 0) {
+          // Create first session
+          createChatSession(user.id).then(sessionId => {
+            setActiveSessionId(sessionId);
+          });
+        }
+      });
+      return () => unsubscribe();
+    } else {
+      // Guest mode: load from localStorage
+      const sessionsKey = 'kfm_sessions_guest';
+      const saved = localStorage.getItem(sessionsKey);
+      if (saved) {
+        try {
+          const guestSessions = JSON.parse(saved);
+          setSessions(guestSessions);
+          if (guestSessions.length > 0 && !activeSessionId) {
+            setActiveSessionId(guestSessions[0].id);
+          }
+        } catch (e) {
+          console.error('Failed to load guest sessions', e);
+        }
+      }
+      // Create first session for guests if none exist
+      if (!saved || JSON.parse(saved).length === 0) {
+        const newSessionId = `session_${Date.now()}`;
+        const newSession = {
+          id: newSessionId,
+          title: 'New Conversation',
+          preview: '',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          messageCount: 0
+        };
+        localStorage.setItem(sessionsKey, JSON.stringify([newSession]));
+        setSessions([newSession]);
+        setActiveSessionId(newSessionId);
+      }
+    }
+  }, [user]);
+
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
   const triggerSafety = () => setSafetyMode(true);
   const closeSafety = () => setSafetyMode(false);
@@ -57,6 +113,59 @@ function AppContent() {
     setLegalDoc(null);
   };
 
+  // Session handlers
+  const handleNewSession = async () => {
+    if (user) {
+      const sessionId = await createChatSession(user.id);
+      setActiveSessionId(sessionId);
+    } else {
+      // Guest mode
+      const sessionsKey = 'kfm_sessions_guest';
+      const newSessionId = `session_${Date.now()}`;
+      const newSession = {
+        id: newSessionId,
+        title: 'New Conversation',
+        preview: '',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messageCount: 0
+      };
+      const saved = localStorage.getItem(sessionsKey);
+      const currentSessions = saved ? JSON.parse(saved) : [];
+      const updatedSessions = [newSession, ...currentSessions];
+      localStorage.setItem(sessionsKey, JSON.stringify(updatedSessions));
+      setSessions(updatedSessions);
+      setActiveSessionId(newSessionId);
+    }
+  };
+
+  const handleSelectSession = (sessionId: string) => {
+    setActiveSessionId(sessionId);
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    if (user) {
+      await deleteSession(user.id, sessionId);
+      // Sessions will update via subscription
+      if (activeSessionId === sessionId) {
+        setActiveSessionId(sessions[0]?.id || null);
+      }
+    } else {
+      // Guest mode
+      const sessionsKey = 'kfm_sessions_guest';
+      const saved = localStorage.getItem(sessionsKey);
+      if (saved) {
+        const currentSessions = JSON.parse(saved);
+        const updatedSessions = currentSessions.filter((s: ChatSession) => s.id !== sessionId);
+        localStorage.setItem(sessionsKey, JSON.stringify(updatedSessions));
+        setSessions(updatedSessions);
+        if (activeSessionId === sessionId) {
+          setActiveSessionId(updatedSessions[0]?.id || null);
+        }
+      }
+    }
+  };
+
   const renderView = () => {
     // If user is logged in but NOT verified, show Verification Screen
     // Exception: If they are on the 'auth' screen (which shouldn't happen if logged in, but just in case)
@@ -68,7 +177,27 @@ function AppContent() {
       case 'home':
         return <HomeView setView={setCurrentView} showLegal={showLegal} />;
       case 'chat':
-        return <ChatInterface triggerSafety={triggerSafety} showLegal={showLegal} />;
+        return (
+          <div className="flex h-full">
+            <div className="w-64 flex-shrink-0">
+              <ChatSessionList
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                onSelectSession={handleSelectSession}
+                onNewSession={handleNewSession}
+                onDeleteSession={handleDeleteSession}
+              />
+            </div>
+            <div className="flex-1">
+              <ChatInterface
+                triggerSafety={triggerSafety}
+                showLegal={showLegal}
+                activeSessionId={activeSessionId}
+                onSessionChange={setActiveSessionId}
+              />
+            </div>
+          </div>
+        );
       case 'triage':
         return <TriageAssessment setView={setCurrentView} showLegal={showLegal} />;
       case 'singles':
